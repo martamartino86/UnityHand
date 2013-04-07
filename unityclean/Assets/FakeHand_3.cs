@@ -7,15 +7,18 @@ using Leap;
 public class Coordinates {
 	public Vector3 position;
 	public Quaternion rotation;
+	public Vector3 velocity;
 	
-	public Coordinates(Vector3 p, Quaternion r) {
+	public Coordinates(Vector3 p, Quaternion r, Vector3 v) {
 		this.position = p;
 		this.rotation = r;
+		this.velocity = v;
 	}
 }
 
 public class MyInstance {
 	public enum Type {
+		Sphere,
 		Palm,
 		Finger,
 		ToolFinger
@@ -37,14 +40,14 @@ public class MyInstance {
 
 public class FakeHand_3 : MonoBehaviour {
 	// Strutture dati.
-	static Dictionary<long, MyInstance> listActive = new System.Collections.Generic.Dictionary<long, MyInstance>();
-	static Dictionary<long, MyInstance> listZombie = new System.Collections.Generic.Dictionary<long, MyInstance>();
-	static Dictionary<long, MyInstance> listaSfere = new System.Collections.Generic.Dictionary<long, MyInstance>();
-	static long myId = 0;
+	static List<MyInstance> listActive = new System.Collections.Generic.List<MyInstance>();
 	Controller controller;
-	GameObject palmo = null, dito = null, sfera = null;
+	Leap.Vector oldPos = new Vector();
+	long oldts = 0;
+	GameObject palmo = null, dito = null, sfera = null, tool = null;
 	
-FakeHand_3() : base() { Debug.Log("constructor"); }
+	Vector3 precpalmPosition = Vector3.zero;
+	//FakeHand_3() : base() { Debug.Log("constructor"); }
 	
 	// Use this for initialization
 	void Start () {
@@ -52,94 +55,131 @@ FakeHand_3() : base() { Debug.Log("constructor"); }
 		controller = new Controller();
 		palmo = GameObject.Find("Palmo");
 		palmo.renderer.enabled = false;
+		palmo.renderer.material.shader = Shader.Find("Transparent/Diffuse");
+
 		dito = GameObject.Find("Dito");
 		dito.renderer.enabled = false;
+		dito.renderer.material.shader = Shader.Find("Transparent/Diffuse");
+		
 		sfera = GameObject.Find("Sfera");
 		sfera.renderer.enabled = false;
-		Debug.Log("awake!");
+		sfera.renderer.material.shader = Shader.Find("Transparent/Diffuse");
+		
+		tool = GameObject.Find("Tool");
+		tool.renderer.enabled = false;
+		sfera.renderer.material.shader = Shader.Find("Transparent/Diffuse");
+		//Debug.Log("awake!");
 	}
 	
 	// Update is called once per frame
 	void Update () {
-		Vector3 palmPosition, fingerPosition, sphereCenter;
+		Vector3 palmPosition, fingerPosition, sphereCenter, palmVelocity, fingerVelocity;
 		Quaternion palmRotation, fingerRotation;
-		MyInstance instance, temp;
+		MyInstance instance;
 		GameObject g;
 		List<long> buffer = new List<long>();
 		var t = System.DateTime.Now.Ticks;
-				
+		
 		Frame frame = controller.Frame();
-		if (!frame.Hands.Empty)
+		//Debug.Log("mani: " + frame.Hands.Count);
+		foreach (Hand h in frame.Hands)
 		{
-			foreach (Hand h in frame.Hands)
-			{
-				// Se non ce l'ho gia' in lista, lo aggiungo agli attivi.
-				if (true || !listActive.ContainsKey(h.Id))
-				{
-					palmPosition = new Vector3(h.PalmPosition.x, h.PalmPosition.y, h.PalmPosition.z);
-					palmRotation = Quaternion.FromToRotation(new UnityEngine.Vector3(0,-1,0),
-						new UnityEngine.Vector3(h.PalmNormal.x, h.PalmNormal.y, h.PalmNormal.z).normalized);
-					g = (GameObject)(Instantiate(palmo, palmPosition, palmRotation));
-					g.renderer.enabled = true;
-					instance = new MyInstance(g, t, new Coordinates(palmPosition, palmRotation), MyInstance.Type.Palm);
-					listActive.Add(myId++, instance);
-				}
-				// Altrimenti ne aggiorno il timestamp
-				else
-				{
-					g = listActive[h.Id].gameObj;
-					g.transform.position = new Vector3(h.PalmPosition.x, h.PalmPosition.y, h.PalmPosition.z);
-					g.transform.rotation = Quaternion.FromToRotation(new UnityEngine.Vector3(0,-1,0),
-						new UnityEngine.Vector3(h.PalmNormal.x, h.PalmNormal.y, h.PalmNormal.z).normalized);
-					listActive[h.Id].lastTimeVisible = t;
-				}
-				// Creo anche la sua sfera (da sistemare).
-				foreach (var s in listaSfere.Values) {
-					Destroy(s.gameObj);
-				}
-				listaSfere.Clear();
-				sphereCenter = new Vector3(h.SphereCenter.x, h.SphereCenter.y, h.SphereCenter.z);
-				g = (GameObject)(Instantiate(sfera, sphereCenter, Quaternion.identity));
-				g.transform.localScale = Vector3.one * (h.SphereRadius);
-				g.renderer.material.color = new Color(1, 0, 0, 0.5F);
-				g.renderer.enabled = true;
-				g.renderer.material.shader = Shader.Find("Transparent/Diffuse");
-				instance = new MyInstance(g, t, new Coordinates(sphereCenter, new Quaternion(0,0,0,h.SphereRadius)), MyInstance.Type.Palm);
-				listaSfere.Add(myId++, instance);
-			}
-			// Idem con patatine fritte per le dita.
-			if (!frame.Pointables.Empty)
-			{
-				if (!frame.Fingers.Empty)
-				{
-					foreach (Finger f in frame.Fingers)
-					{
-						if (true || !listActive.ContainsKey(f.Id))
-						{
-							fingerPosition = new Vector3(f.TipPosition.x, f.TipPosition.y, f.TipPosition.z);
-							//Debug.Log(f.Id + " " + fingerPosition.ToString());
-							fingerRotation = Quaternion.FromToRotation(new Vector3(0, 1, 0),
-								new Vector3(f.Direction.x, f.Direction.y, f.Direction.z));
-							g = (GameObject)(Instantiate(dito, fingerPosition, fingerRotation));
-							g.renderer.enabled = true;
-							instance = new MyInstance(g, t, new Coordinates(fingerPosition,
-								fingerRotation), MyInstance.Type.Finger);
-							listActive.Add(myId++, instance);
-						}
-						else
-						{
-							g = listActive[f.Id].gameObj;
-							g.transform.position = new Vector3(f.TipPosition.x, f.TipPosition.y, f.TipPosition.z);
-							g.transform.rotation = Quaternion.FromToRotation(new Vector3(0, 1, 0),
-								new Vector3(f.Direction.x, f.Direction.y, f.Direction.z));
-							listActive[f.Id].lastTimeVisible = t;
-						}
-					}
-				}
-				// Fallo anche per i Tools!!! (nel giorno del mai nel mese del poi)
-			}
+			Debug.Log("ID PALM: " + h.Id);
+			palmPosition = new Vector3(h.PalmPosition.x, h.PalmPosition.y, h.PalmPosition.z);
+			//
+			if (precpalmPosition == Vector3.zero)
+				precpalmPosition = new Vector3(palmPosition.x, palmPosition.y, palmPosition.z);
+			float diff = (palmPosition.y - precpalmPosition.y);
+			//Debug.Log ("DIFF: " + diff);
+			precpalmPosition = palmPosition;
+			//
+			palmRotation = Quaternion.FromToRotation(new UnityEngine.Vector3(0,-1,0),
+				new UnityEngine.Vector3(h.PalmNormal.x, h.PalmNormal.y, h.PalmNormal.z).normalized);
+			palmVelocity = new Vector3(h.PalmVelocity.x, h.PalmVelocity.y, h.PalmVelocity.z);
+			g = (GameObject)(Instantiate(palmo, palmPosition, palmRotation));
+			g.renderer.enabled = true;
+			instance = new MyInstance(g, t, new Coordinates(palmPosition, palmRotation, palmVelocity), MyInstance.Type.Palm);
+			listActive.Add(instance);
+			//Debug.Log("Palm " + h.Id + "position: " + h.PalmPosition + "; velocity: " + h.PalmVelocity.Magnitude);
+			// Creo anche la sua sfera (da sistemare).
+			//Debug.Log("radius: "+h.SphereRadius);
+			sphereCenter = new Vector3(h.SphereCenter.x, h.SphereCenter.y, h.SphereCenter.z);
+			g = (GameObject)(Instantiate(sfera, sphereCenter, Quaternion.identity));
+			g.transform.localScale = Vector3.one * (h.SphereRadius);
+			g.renderer.enabled = true;
+			instance = new MyInstance(g, t, new Coordinates(sphereCenter, new Quaternion(0,0,0,h.SphereRadius), palmVelocity),
+				MyInstance.Type.Sphere);
+			listActive.Add(instance);
+		}
+		// Idem con patatine fritte per le dita e per i tools.
+		foreach (var f in frame.Pointables)
+		{
+			Debug.Log("ID POINTABLE: " + f.Id + "; LENGTH: " + f.Length);
+			fingerPosition = new Vector3(f.TipPosition.x, f.TipPosition.y, f.TipPosition.z);
+			//Debug.Log(f.Id + " " + fingerPosition.ToString());
+			fingerRotation = Quaternion.FromToRotation(new Vector3(0, 1, 0),
+				new Vector3(f.Direction.x, f.Direction.y, f.Direction.z));
+			fingerVelocity = new Vector3(f.TipVelocity.x, f.TipVelocity.y, f.TipVelocity.z);
+			g = (GameObject)(Instantiate(dito, fingerPosition, fingerRotation));
+			g.transform.localScale = new Vector3(f.Width, f.Length, f.Width) / 2;
+			g.renderer.enabled = true;
+			MyInstance.Type type;
+			if (f.IsFinger)
+				type = MyInstance.Type.Finger;
+			else
+				type = MyInstance.Type.ToolFinger;
+			instance = new MyInstance(g, t, new Coordinates(fingerPosition,
+				fingerRotation, fingerVelocity), type);
+			var delta = f.TipPosition - oldPos;
+			/*delta = new Vector(f.TipVelocity.x / delta.x,
+				f.TipVelocity.y / delta.y, 
+				f.TipVelocity.z / delta.z);
+				*/
+			delta /= (frame.Timestamp - oldts) * 1.0e-6f;
+//			Debug.Log("Finger " + f.Id + " velocity: " + f.TipVelocity + " ratio: " + delta);
+			oldPos = f.TipPosition;
+			oldts = frame.Timestamp;
+			listActive.Add(instance);
 		}
 		
+		while ((listActive.Count != 0) && (t - listActive[0].lastTimeVisible > 0.5 / 100.0e-9))
+		{
+			Destroy(listActive[0].gameObj);
+			listActive.RemoveAt(0);
+		}
+
+		foreach (var o in listActive)
+		{
+			Color c;
+			if (o.lastTimeVisible == t)
+			{
+				//Debug.Log("velocity: "+fingerVelocity.magnitude);
+				switch (o.typeOfObj)
+				{
+				case MyInstance.Type.Finger:
+				case MyInstance.Type.Palm:
+					c = new Color(1.8f, 0.2f + (o.PosAndRot.velocity.magnitude / 1500), 0.0f, 1.0f);
+					break;
+				case MyInstance.Type.Sphere:
+					c = new Color(0.8f, 0.2f + (o.PosAndRot.velocity.magnitude / 1500), 0.0f, 0.5f);
+					break;
+				case MyInstance.Type.ToolFinger:
+					c = new Color(0.2f, 0.5f, 0.2f + (o.PosAndRot.velocity.magnitude / 1500), 1.0f);
+					break;
+				default:
+					c = new Color(1.0f, 0.0f, 1.0f, 1.0f);
+					break;
+				}
+			}
+			else
+			{
+				c = new Color(0.5f, 0.5f, 0.5f, 0.1f * (1.0f - (t - o.lastTimeVisible) / (0.5f / 100.0e-9f)));
+				o.gameObj.transform.localScale *= 0.9f;
+			}
+			o.gameObj.renderer.material.color = c;
+		}
+
+		/*
 		// Tolgo dalla lista attivi gli oggetti non piu' rilevati.
 		foreach (long k in listActive.Keys)
 		{
@@ -185,5 +225,6 @@ FakeHand_3() : base() { Debug.Log("constructor"); }
 		}
 		
 		//Debug.Log("Active: " + listActive.Count + " Zombie: " + listZombie.Count);
+		*/
 	}
 }
